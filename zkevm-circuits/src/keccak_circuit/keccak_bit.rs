@@ -42,7 +42,7 @@ fn get_num_bits_per_theta_lookup() -> usize {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct KeccakRow<F> {
+pub struct KeccakRow<F> {
     q_padding: bool,
     q_padding_last: bool,
     state: [u8; KECCAK_WIDTH_IN_BITS],
