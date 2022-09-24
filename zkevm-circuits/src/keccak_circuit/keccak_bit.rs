@@ -137,7 +137,7 @@ impl<F: Field> KeccakBitCircuit<F> {
 }
 
 impl<F: Field> KeccakBitConfig<F> {
-    pub(crate) fn configure(meta: &mut ConstraintSystem<F>, r: F) -> Self {
+    pub fn configure(meta: &mut ConstraintSystem<F>, r: F) -> Self {
         let num_bits_per_theta_lookup = get_num_bits_per_theta_lookup();
         info!("num_bits_per_theta_lookup: {}", num_bits_per_theta_lookup);
 
@@ -734,7 +734,7 @@ impl<F: Field> KeccakBitConfig<F> {
         Ok(())
     }
 
-    pub(crate) fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+    pub fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         let num_bits_per_theta_lookup = get_num_bits_per_theta_lookup();
         layouter.assign_table(
             || "theta c table",
