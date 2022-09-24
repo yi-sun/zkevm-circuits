@@ -609,7 +609,7 @@ impl<F: Field> KeccakBitConfig<F> {
         self.assign(layouter, &witness)
     }
 
-    fn assign(
+    pub fn assign(
         &self,
         layouter: &mut impl Layouter<F>,
         witness: &[KeccakRow<F>],
