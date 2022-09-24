@@ -630,7 +630,7 @@ impl<F: Field> KeccakBitConfig<F> {
         region: &mut Region<'_, F>,
         offset: usize,
         row: &KeccakRow<F>,
-    ) -> Result<Vec<AssignedCell<F, F>>, Error> {
+    ) -> Result<(), Error> {
         let round = (offset + NUM_ROUNDS) % (NUM_ROUNDS + 1);
 
         // Fixed selectors
