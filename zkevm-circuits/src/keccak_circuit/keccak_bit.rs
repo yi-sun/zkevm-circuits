@@ -961,6 +961,8 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[u8], r: F) {
     debug!("hash: {:x?}", &hash_bytes);
     debug!("data rlc: {:x?}", data_rlc);
     println!("hash: {:x?}", &hash_bytes);
+    println!("r: {:?}", r);
+    println!("hash rlc: {:x?}", rlc::value(&hash_bytes, r));
     println!("data rlc: {:x?}", data_rlc);
 }
 
