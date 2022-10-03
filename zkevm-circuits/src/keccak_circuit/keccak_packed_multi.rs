@@ -423,7 +423,7 @@ mod split {
     use halo2_proofs::plonk::{ConstraintSystem, Expression};
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn expr<F: Field>(
+    pub fn expr<F: Field>(
         meta: &mut ConstraintSystem<F>,
         cell_manager: &mut CellManager<F>,
         cb: &mut BaseConstraintBuilder<F>,
@@ -452,7 +452,7 @@ mod split {
         parts
     }
 
-    pub(crate) fn value<F: Field>(
+    pub fn value<F: Field>(
         cell_manager: &mut CellManager<F>,
         region: &mut KeccakRegion<F>,
         input: F,
@@ -495,7 +495,7 @@ mod split_uniform {
     use halo2_proofs::plonk::{ConstraintSystem, Expression};
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn expr<F: Field>(
+    pub fn expr<F: Field>(
         meta: &mut ConstraintSystem<F>,
         output_cells: &[Cell<F>],
         cell_manager: &mut CellManager<F>,
@@ -572,7 +572,7 @@ mod split_uniform {
         output_parts
     }
 
-    pub(crate) fn value<F: Field>(
+    pub fn value<F: Field>(
         output_cells: &[Cell<F>],
         cell_manager: &mut CellManager<F>,
         region: &mut KeccakRegion<F>,
@@ -661,7 +661,7 @@ mod transform {
     use halo2_proofs::plonk::TableColumn;
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn expr<F: Field>(
+    pub fn expr<F: Field>(
         name: &'static str,
         meta: &mut ConstraintSystem<F>,
         cell_manager: &mut CellManager<F>,
@@ -689,7 +689,7 @@ mod transform {
         )
     }
 
-    pub(crate) fn value<F: Field>(
+    pub fn value<F: Field>(
         cell_manager: &mut CellManager<F>,
         region: &mut KeccakRegion<F>,
         input: Vec<PartValue<F>>,
@@ -719,7 +719,7 @@ mod transform_to {
     use halo2_proofs::plonk::TableColumn;
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn expr<F: Field>(
+    pub fn expr<F: Field>(
         name: &'static str,
         meta: &mut ConstraintSystem<F>,
         cells: &[Cell<F>],
@@ -749,7 +749,7 @@ mod transform_to {
         output
     }
 
-    pub(crate) fn value<F: Field>(
+    pub fn value<F: Field>(
         cells: &[Cell<F>],
         region: &mut KeccakRegion<F>,
         input: Vec<PartValue<F>>,
@@ -778,7 +778,7 @@ mod transform_to {
 }
 
 impl<F: Field> KeccakPackedConfig<F> {
-    pub(crate) fn configure(meta: &mut ConstraintSystem<F>, r: Expression<F>) -> Self {
+    pub fn configure(meta: &mut ConstraintSystem<F>, r: Expression<F>) -> Self {
         let q_enable = meta.fixed_column();
         let q_first = meta.fixed_column();
         let q_round = meta.fixed_column();
@@ -1549,7 +1549,7 @@ impl<F: Field> KeccakPackedConfig<F> {
         self.assign(layouter, &witness)
     }
 
-    pub(crate) fn assign(
+    pub fn assign(
         &self,
         layouter: &mut impl Layouter<F>,
         witness: &[KeccakRow<F>],
@@ -1630,7 +1630,7 @@ impl<F: Field> KeccakPackedConfig<F> {
         Ok(())
     }
 
-    pub(crate) fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+    pub fn load(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         load_normalize_table(layouter, "normalize_6", &self.normalize_6, 6u64)?;
         load_normalize_table(layouter, "normalize_4", &self.normalize_4, 4u64)?;
         load_normalize_table(layouter, "normalize_3", &self.normalize_3, 3u64)?;
@@ -2001,7 +2001,7 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[u8], r: F) {
     debug!("data rlc: {:x?}", data_rlc);
 }
 
-fn multi_keccak<F: Field>(bytes: &[Vec<u8>], r: F) -> Vec<KeccakRow<F>> {
+pub fn multi_keccak<F: Field>(bytes: &[Vec<u8>], r: F) -> Vec<KeccakRow<F>> {
     let mut rows: Vec<KeccakRow<F>> = Vec::new();
     // Dummy first row so that the initial data is absorbed
     // The initial data doesn't really matter, `is_final` just needs to be disabled.
