@@ -343,7 +343,7 @@ pub struct KeccakPackedConfig<F> {
     normalize_6: [TableColumn; 2],
     chi_base_table: [TableColumn; 2],
     pack_table: [TableColumn; 2],
-    r: Challenge,
+    pub r: Challenge,
     _marker: PhantomData<F>,
 }
 

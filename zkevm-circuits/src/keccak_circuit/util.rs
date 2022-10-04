@@ -143,7 +143,7 @@ pub mod compose_rlc {
     use eth_types::Field;
     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(expressions: &[Expression<F>], r: Expression<F>) -> Expression<F> {
+    pub fn expr<F: Field>(expressions: &[Expression<F>], r: Expression<F>) -> Expression<F> {
         let mut rlc = expressions[0].clone();
         let mut multiplier = r.clone();
         for expression in expressions[1..].iter() {
