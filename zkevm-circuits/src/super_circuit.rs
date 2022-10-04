@@ -72,7 +72,7 @@ use halo2_proofs::halo2curves::{
 };
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
-    plonk::{Circuit, ConstraintSystem, Error},
+    plonk::{Challenge, Circuit, ConstraintSystem, Error, FirstPhase},
 };
 
 use rand::RngCore;
@@ -93,6 +93,7 @@ pub struct SuperCircuitConfig<F: Field, const MAX_TXS: usize, const MAX_CALLDATA
     bytecode_circuit: BytecodeConfig<F>,
     copy_circuit: CopyCircuit<F>,
     keccak_circuit: KeccakConfig<F>,
+    gamma: Challenge,
 }
 
 /// The Super Circuit contains all the zkEVM circuits
@@ -147,8 +148,9 @@ impl<F: Field, const MAX_TXS: usize, const MAX_CALLDATA: usize> Circuit<F>
         let copy_table = CopyTable::construct(meta, q_copy_table);
 
         let power_of_randomness = power_of_randomness_from_instance(meta);
+	let [gamma] = [(); 1].map(|_| meta.challenge_usable_after(FirstPhase));
 
-        let keccak_circuit = KeccakConfig::configure(meta, power_of_randomness[0].clone());
+        let keccak_circuit = KeccakConfig::configure(meta, gamma);
         let keccak_table = keccak_circuit.keccak_table.clone();
 
         let evm_circuit = EvmCircuit::configure(
@@ -199,6 +201,7 @@ impl<F: Field, const MAX_TXS: usize, const MAX_CALLDATA: usize> Circuit<F>
                 Challenges::mock(power_of_randomness[0].clone()),
             ),
             keccak_circuit,
+	    gamma
         }
     }
 
@@ -208,6 +211,7 @@ impl<F: Field, const MAX_TXS: usize, const MAX_CALLDATA: usize> Circuit<F>
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         let challenges = Challenges::mock(Value::known(self.block.randomness));
+	let gamma = layouter.get_challenge(config.gamma);	
 
         // --- EVM Circuit ---
         config
@@ -255,10 +259,19 @@ impl<F: Field, const MAX_TXS: usize, const MAX_CALLDATA: usize> Circuit<F>
         )?;
         // --- Keccak Table ---
         config.keccak_circuit.load(&mut layouter)?;
+	let mut temp = Vec::new();
+	for a in &self.keccak_inputs {
+	    let mut temp2 = Vec::new();
+	    for b in a.iter() {
+		temp2.push(Value::known(F::from(*b as u64)))
+	    }
+	    temp.push(temp2);
+	}
+
         config.keccak_circuit.assign_from_witness(
             &mut layouter,
-            &self.keccak_inputs,
-            self.block.randomness,
+            &temp,
+            gamma,
         )?;
         // --- Copy Circuit ---
         config

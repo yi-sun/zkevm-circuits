@@ -3,7 +3,7 @@
 use eth_types::{Field, ToScalar, Word};
 use halo2_proofs::{
     circuit::{Layouter, Value},
-    plonk::{Error, TableColumn},
+    plonk::{Challenge, Error, TableColumn},
 };
 use itertools::Itertools;
 use std::env::var;

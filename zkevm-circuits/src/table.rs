@@ -755,14 +755,14 @@ impl KeccakTable {
         &self,
         region: &mut Region<F>,
         offset: usize,
-        values: [F; 4],
+        values: [Value<F>; 4],
     ) -> Result<(), Error> {
         for (column, value) in self.columns().iter().zip(values.iter()) {
             region.assign_advice(
                 || format!("assign {}", offset),
                 *column,
                 offset,
-                || Value::known(*value),
+                || *value,
             )?;
         }
         Ok(())
