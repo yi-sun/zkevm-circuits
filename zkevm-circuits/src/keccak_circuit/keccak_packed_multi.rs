@@ -65,18 +65,26 @@ pub struct AbsorbData<F: Field> {
 impl<F: Field> Default for AbsorbData<F> {
     fn default() -> Self {
 	AbsorbData {
-	    from: Value::known(F::from(0)),
-	    absorb: Value::known(F::from(0)),
-	    result: Value::known(F::from(0))
+	    from: Value::known(F::zero()),
+	    absorb: Value::known(F::zero()),
+	    result: Value::known(F::zero()),
 	}
     }
 }
 
 /// SqueezeData
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct SqueezeData<F: Field> {
     packed: Value<F>,
 }
+
+impl<F: Field> Default for SqueezeData<F> {
+    fn default() -> Self {
+	SqueezeData {
+	    packed: Value::known(F::zero()),
+	}
+    }
+}	   
 
 /// KeccakRow
 #[derive(Clone, Debug)]
@@ -931,7 +939,9 @@ impl<F: Field> KeccakPackedConfig<F> {
         let mut data_rlcs = Vec::new();
         for _ in input_bytes.iter() {
             is_paddings.push(cell_manager.query_cell(meta));
-            data_rlcs.push(cell_manager.query_cell(meta));
+	    let data_rlc_cell = cell_manager.query_cell(meta);
+//	    println!("data_rlc_cell {:?}", data_rlc_cell);
+            data_rlcs.push(data_rlc_cell);
         }
         info!("- Post padding:");
         info!("Lookups: {}", lookup_counter);
@@ -1566,12 +1576,10 @@ impl<F: Field> KeccakPackedConfig<F> {
         layouter: &mut impl Layouter<F>,
         witness: &[KeccakRow<F>],
     ) -> Result<(), Error> {
-	let mut idx = 0;
         layouter.assign_region(
             || "assign keccak rows",
             |mut region| {
                 for (offset, keccak_row) in witness.iter().enumerate() {
-		    idx = idx + 1;
                     self.set_row(&mut region, offset, keccak_row)?;
                 }
                 Ok(())
@@ -1585,6 +1593,7 @@ impl<F: Field> KeccakPackedConfig<F> {
         offset: usize,
         row: &KeccakRow<F>,
     ) -> Result<(), Error> {
+//	println!("offset {:?} row {:?}", offset, row);
         // Fixed selectors
         for (name, column, value) in &[
             ("q_enable", self.q_enable, F::from(row.q_enable)),
@@ -1606,7 +1615,6 @@ impl<F: Field> KeccakPackedConfig<F> {
                 || Value::known(*value),
             )?;
         }
-
         self.keccak_table.assign_row(
             region,
             offset,
@@ -1618,6 +1626,7 @@ impl<F: Field> KeccakPackedConfig<F> {
             ],
         )?;
 
+//	println!("row {:?}", row.cell_values);
         // Cell values
         for (idx, (bit, column)) in row
             .cell_values
@@ -1625,13 +1634,20 @@ impl<F: Field> KeccakPackedConfig<F> {
             .zip(self.cell_manager.columns())
             .enumerate()
         {
-            region.assign_advice(
+            let x = region.assign_advice(
                 || format!("assign lookup value {} {}", idx, offset),
                 column.advice,
                 offset,
                 || *bit,
             )?;
+//	    match x {
+//		Error => {
+//		    println!("Error: offset {:?} bit {:?} column {:?}", offset, bit, column.advice);
+//		    assert!(false);
+//		}
+//	    }
         }
+//	println!("cell done");
 
         // Round constant
         region.assign_fixed(
@@ -1664,6 +1680,7 @@ pub fn fe_to_biguint<F: Field>(fe: &F) -> BigUint {
 }
 
 fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[Value<F>], r: Value<F>) {
+    println!("keccak bytes {:?} r {:?}", bytes, r);
     let bytes_val: Value<Vec<F>> = Value::from_iter(bytes.iter().map(|s| *s));
     let bytes_val_vec: Value<Vec<u8>> = bytes_val.map(|bytes_vec| bytes_vec.iter().map(|b| u8::try_from(fe_to_biguint(b)).unwrap()).collect());
     let mut bits = bytes_val_vec.map(|bv| into_bits(&bv)).transpose_vec(8 * bytes.len());
@@ -1699,7 +1716,6 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[Value<F>], r: Value<F
                 result: s[i][j],
             });
         }
-
         let mut hash_words: Vec<Value<F>> = Vec::new();
 
         let mut cell_managers = Vec::new();
@@ -1732,7 +1748,7 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[Value<F>], r: Value<F
             absorb_from.assign(&mut region, 0, absorb_row.from);
             absorb_data.assign(&mut region, 0, absorb_row.absorb);
             absorb_result.assign(&mut region, 0, absorb_row.result);
-	    
+
             // Absorb
             cell_manager.start_region();
             let part_size = get_num_bits_per_absorb_lookup();
@@ -2060,7 +2076,19 @@ pub fn multi_keccak<F: Field>(bytes: &[Vec<Value<F>>], r: Value<F>) -> Vec<Kecca
 #[cfg(test)]
 mod tests {
     use super::*;
-    use halo2_proofs::{circuit::Value, dev::MockProver, halo2curves::bn256::Fr};
+    use halo2_proofs::{
+	circuit::{AssignedCell, Layouter, SimpleFloorPlanner, Value},
+	dev::MockProver,
+	halo2curves::bn256::{Bn256, Fr, G1Affine, G2Affine},
+	plonk::*,
+	poly::commitment::ParamsProver,
+	poly::kzg::{
+            commitment::{KZGCommitmentScheme, ParamsKZG},
+            multiopen::{ProverGWC, ProverSHPLONK, VerifierGWC, VerifierSHPLONK},
+            strategy::SingleStrategy,
+	},
+	transcript::{Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer},
+    };
 
     fn verify<F: Field>(k: u32, inputs: Vec<Vec<Value<F>>>, success: bool) {
         let mut circuit = KeccakPackedCircuit::new(2usize.pow(k), inputs);
@@ -2078,6 +2106,54 @@ mod tests {
         }
     }
 
+    fn verify_real(
+	k: u32,
+	inputs: Vec<Vec<Value<Fr>>>,
+    ) -> Result<(), Error> {
+        let circuit = KeccakPackedCircuit::new(2usize.pow(k), inputs.clone());
+	let mut inputs_none = Vec::new();
+	for x in inputs.iter() {
+	    inputs_none.push(vec![Value::<Fr>::unknown(); x.len()]);
+	}
+	let circuit_none = KeccakPackedCircuit::new(2usize.pow(k), inputs_none);
+
+	let mut rng = rand::thread_rng();
+	let params = ParamsKZG::<Bn256>::setup(k, &mut rng);
+
+	println!("vk gen started");
+	let vk = keygen_vk(&params, &circuit_none)?;
+	println!("vk gen done");
+        let pk = keygen_pk(&params, vk, &circuit_none)?;
+	println!("pk gen done");
+	println!(" ");
+	println!("==============STARTING PROOF GEN===================");
+
+	let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+	create_proof::<
+            KZGCommitmentScheme<Bn256>,
+            ProverGWC<'_, Bn256>,
+            Challenge255<G1Affine>,
+            _,
+            Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
+            KeccakPackedCircuit<Fr>,
+        >(&params, &pk, &[circuit], &[&[]], rng, &mut transcript)?;
+        let proof = transcript.finalize();
+	println!("proof gen done");
+	let verifier_params = params.verifier_params();
+        let strategy = SingleStrategy::new(&params);
+        let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
+        assert!(verify_proof::<
+            KZGCommitmentScheme<Bn256>,
+            VerifierGWC<'_, Bn256>,
+            Challenge255<G1Affine>,
+            Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
+            SingleStrategy<'_, Bn256>,
+        >(verifier_params, pk.get_vk(), strategy, &[&[]], &mut transcript)
+		.is_ok());
+	println!("verify done");
+	Ok(())
+    }    
+
     #[test]
     fn packed_multi_keccak_simple() {
         let k = 15;
@@ -2094,5 +2170,23 @@ mod tests {
 		 .map(|y| Value::known(Fr::from(*y as u64))).collect())
 	    .collect();
         verify::<Fr>(k, inputs, true);
+    }
+
+    #[test]
+    pub fn keccak_real() -> Result<(), Error> {
+        let k = 12;
+        let inputs_u8 = vec![
+//            (0u8..1).collect::<Vec<_>>(),
+	    vec![3u8, 2u8],
+//            (0u8..135).collect::<Vec<_>>(),
+//            (0u8..136).collect::<Vec<_>>(),
+//            (0u8..200).collect::<Vec<_>>(),
+        ];
+	let inputs = inputs_u8
+	    .iter()
+	    .map(|x| x.iter()
+		 .map(|y| Value::known(Fr::from(*y as u64))).collect())
+	    .collect();
+        verify_real(k, inputs)
     }
 }
