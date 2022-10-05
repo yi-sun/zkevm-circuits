@@ -17,7 +17,7 @@ use halo2_proofs::plonk::VirtualCells;
 use halo2_proofs::{
     circuit::{Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{Advice, Challenge, Circuit, Column, ConstraintSystem, Error, Expression,
-	    FirstPhase, Fixed, SecondPhase, TableColumn},
+	    FirstPhase, Fixed, Phase, SecondPhase, TableColumn},
     poly::Rotation,
 };
 use itertools::Itertools;
@@ -227,15 +227,17 @@ pub struct CellManager<F> {
     columns: Vec<CellColumn<F>>,
     rows: Vec<usize>,
     num_unused_cells: usize,
+    phase: u8,
 }
 
 impl<F: FieldExt> CellManager<F> {
-    pub fn new(height: usize) -> Self {
+    pub fn new(height: usize, phase: u8) -> Self {
         Self {
             height,
             columns: Vec::new(),
             rows: vec![0; height],
             num_unused_cells: 0,
+	    phase,
         }
     }
 
@@ -263,7 +265,13 @@ impl<F: FieldExt> CellManager<F> {
         let column = if column_idx < self.columns.len() {
             self.columns[column_idx].advice
         } else {
-            let advice = meta.advice_column();
+	    let advice = {
+		if self.phase == 0u8 {
+		    meta.advice_column()
+		} else {
+		    meta.advice_column_in(SecondPhase)
+		}
+	    };
             let mut expr = 0.expr();
             meta.create_gate("Query column", |meta| {
                 expr = meta.query_advice(advice, Rotation::cur());
@@ -451,7 +459,7 @@ mod split {
     ) -> Vec<Part<F>> {
         let mut parts = Vec::new();
         let word = WordParts::new(target_part_size, rot, normalize);
-        for word_part in word.parts {
+        for (idx, word_part) in word.parts.iter().enumerate() {
             let cell = if let Some(row) = row {
                 cell_manager.query_cell_at_row(meta, row as i32)
             } else {
@@ -478,10 +486,13 @@ mod split {
         row: Option<usize>,
     ) -> Vec<PartValue<F>> {
         let input_bits = input.map(|i| unpack(i));
+	input_bits.zip(input).assert_if_known(|(ib, i)| {
+	    pack::<F>(ib) == *i
+	});
 //        debug_assert_eq!(pack::<F>(&input_bits), input);
         let mut parts = Vec::new();
         let word = WordParts::new(target_part_size, rot, normalize);
-        for word_part in word.parts {
+        for (idx, word_part) in word.parts.iter().enumerate() {
             let value = input_bits.map(|ib| pack_part(&ib, &word_part)).map(|v| F::from(v));
             let cell = if let Some(row) = row {
                 cell_manager.query_cell_value_at_row(row as i32)
@@ -495,6 +506,9 @@ mod split {
                 value: value,
             });
         }
+	input.zip(decode::value(parts.clone())).assert_if_known(|(i, p)| {
+	    *i == *p
+	});
 //        debug_assert_eq!(decode::value(parts.clone()), input);
         parts
     }
@@ -583,7 +597,7 @@ mod split_uniform {
         }
         let input_parts = rotate_rev(input_parts, rot, target_part_size);
         // Input parts need to equal original input expression
-        cb.require_equal("split", decode::expr(input_parts), input);
+        cb.require_equal("split uniform", decode::expr(input_parts), input);
         // Uniform output
         output_parts
     }
@@ -598,6 +612,9 @@ mod split_uniform {
         normalize: bool,
     ) -> Vec<PartValue<F>> {
         let input_bits = input.map(|i| unpack(i));
+	input_bits.zip(input).assert_if_known(|(ib, i)| {
+	    pack::<F>(ib) == *i
+	});
 //        debug_assert_eq!(pack::<F>(&input_bits), input);
 
         let mut input_parts = Vec::new();
@@ -664,6 +681,9 @@ mod split_uniform {
             }
         }
         let input_parts = rotate_rev(input_parts, rot, target_part_size);
+	input.zip(decode::value(input_parts)).assert_if_known(|(i, p)| {
+	    *i == *p
+	});
 //        debug_assert_eq!(decode::value(input_parts), input);
         output_parts
     }
@@ -799,6 +819,7 @@ impl<F: Field> KeccakPackedConfig<F> {
         let q_enable = meta.fixed_column();
         let q_first = meta.fixed_column();
         let q_round = meta.fixed_column();
+	println!("q_round {:?}", q_round);
         let q_absorb = meta.fixed_column();
         let q_round_last = meta.fixed_column();
         let q_padding = meta.fixed_column();
@@ -817,7 +838,8 @@ impl<F: Field> KeccakPackedConfig<F> {
         let chi_base_table = array_init::array_init(|_| meta.lookup_table_column());
         let pack_table = array_init::array_init(|_| meta.lookup_table_column());
 
-        let mut cell_manager = CellManager::new(get_num_rows_per_round());
+        let mut cell_manager = CellManager::new(get_num_rows_per_round(), 0u8);
+	let mut cell_manager2 = CellManager::new(get_num_rows_per_round(), 1u8);
         let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
         let mut total_lookup_counter = 0;
 
@@ -935,12 +957,13 @@ impl<F: Field> KeccakPackedConfig<F> {
 
         // Padding data
         cell_manager.start_region();
+	cell_manager2.start_region();
         let mut is_paddings = Vec::new();
         let mut data_rlcs = Vec::new();
         for _ in input_bytes.iter() {
             is_paddings.push(cell_manager.query_cell(meta));
-	    let data_rlc_cell = cell_manager.query_cell(meta);
-//	    println!("data_rlc_cell {:?}", data_rlc_cell);
+	    let data_rlc_cell = cell_manager2.query_cell(meta);
+	    println!("data_rlc_cell {:?}", data_rlc_cell);
             data_rlcs.push(data_rlc_cell);
         }
         info!("- Post padding:");
@@ -1725,7 +1748,8 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[Value<F>], r: Value<F
         let mut round_lengths = Vec::new();
         let mut round_data_rlcs = Vec::new();
         for round in 0..NUM_ROUNDS + 1 {
-            let mut cell_manager = CellManager::new(get_num_rows_per_round());
+            let mut cell_manager = CellManager::new(get_num_rows_per_round(), 0u8);
+	    let mut cell_manager2 = CellManager::new(get_num_rows_per_round(), 1u8);
             let mut region = KeccakRegion::new();
 
             let mut absorb_row = AbsorbData::default();
@@ -1791,11 +1815,12 @@ fn keccak<F: Field>(rows: &mut Vec<KeccakRow<F>>, bytes: &[Value<F>], r: Value<F
             let input_bytes =
                 transform::value(&mut cell_manager, &mut region, packed, false, |v| *v, true);
             cell_manager.start_region();
+	    cell_manager2.start_region();
             let mut is_paddings = Vec::new();
             let mut data_rlcs = Vec::new();
             for _ in input_bytes.iter() {
                 is_paddings.push(cell_manager.query_cell_value());
-                data_rlcs.push(cell_manager.query_cell_value());
+                data_rlcs.push(cell_manager2.query_cell_value());
             }
             if round < NUM_WORDS_TO_ABSORB {
                 let mut paddings = Vec::new();
@@ -2158,11 +2183,11 @@ mod tests {
     fn packed_multi_keccak_simple() {
         let k = 15;
         let inputs_u8 = vec![
-            vec![],
-            (0u8..1).collect::<Vec<_>>(),
-            (0u8..135).collect::<Vec<_>>(),
-            (0u8..136).collect::<Vec<_>>(),
-            (0u8..200).collect::<Vec<_>>(),
+            vec![3u8, 2u8],
+//            (0u8..1).collect::<Vec<_>>(),
+//            (0u8..135).collect::<Vec<_>>(),
+//            (0u8..136).collect::<Vec<_>>(),
+//            (0u8..200).collect::<Vec<_>>(),
         ];
 	let inputs = inputs_u8
 	    .iter()
